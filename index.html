@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Connect Pro</title>
+    <script src="/peerjs.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 400px; }
+        .id-badge { background: #007bff; color: white; padding: 8px 12px; border-radius: 5px; font-size: 0.8rem; word-break: break-all; cursor: pointer; display: inline-block; transition: background 0.2s; margin-top: 5px; }
+        .id-badge:hover { background: #0056b3; }
+        .copy-hint { font-size: 0.7rem; color: #888; margin-top: 5px; display: block; }
+        .controls { margin-top: 25px; display: flex; flex-direction: column; gap: 12px; }
+        input { padding: 12px; border: 1px solid #ddd; border-radius: 8px; outline: none; text-align: center; font-size: 1rem; }
+        button { padding: 12px; cursor: pointer; border: none; border-radius: 8px; font-weight: bold; transition: 0.2s; font-size: 1rem; }
+        .btn-call { background: #28a745; color: white; width: 100%; }
+        .btn-hangup { background: #dc3545; color: white; display: none; width: 100%; }
+        .btn-mute { background: #6c757d; color: white; }
+        #status { margin-top: 20px; font-size: 0.9rem; color: #666; font-style: italic; }
+        #incoming-ui { display: none; margin-top: 20px; padding: 15px; border: 2px dashed #28a745; border-radius: 10px; background: #f9fffb; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Voice Connect</h2>
+        <p>Your ID: <br>
+            <span id="my-id" class="id-badge" onclick="copyId()">connecting...</span>
+            <small class="copy-hint">(Click ID to copy)</small>
+        </p>
+        
+        <div class="controls">
+            <input type="text" id="remote-id" placeholder="Enter Friend's ID">
+            <button id="call-btn" class="btn-call" onclick="makeCall()">Start Call</button>
+            <button id="mute-btn" class="btn-mute" onclick="toggleMute()">Mute Mic</button>
+            <button id="hangup-btn" class="btn-hangup" onclick="hangUp()">End Call</button>
+        </div>
+
+        <div id="incoming-ui">
+            <p>🔔 <strong>Incoming Call...</strong></p>
+            <button class="btn-call" onclick="answerCall()">Answer</button>
+            <button class="btn-hangup" style="display:inline-block" onclick="rejectCall()">Reject</button>
+        </div>
+
+        <div id="status">Ready</div>
+    </div>
+
+    <audio id="remoteAudio" autoplay></audio>
+    <audio id="ringtone" loop src="ringtone.mpeg"></audio>
+    <audio id="lonelySong" src="lonely.mp3"></audio>
+
+    <script>
+        const CUSTOM_FRIEND_ID = "4d485398-50ef-4717-9fe4-c150eb592f34";
+
+        const peer = new Peer({
+            host: location.hostname,
+            port: location.port || (location.protocol === 'https:' ? 443 : 80),
+            path: '/peerjs/myapp',
+            secure: location.protocol === 'https:'
+        });
+
+        let localStream;
+        let currentCall;
+        let isMuted = false;
+        let myPeerId = null;
+
+        // Initialize Microphone
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            localStream = stream;
+        }).catch(err => {
+            document.getElementById('status').innerText = "Mic Error: Please allow access";
+        });
+
+        // Set up Peer ID
+        peer.on('open', id => {
+            myPeerId = id;
+            document.getElementById('my-id').innerText = id;
+        });
+
+        // Copy ID Logic
+        function copyId() {
+            if (!myPeerId || myPeerId === "connecting...") return;
+            navigator.clipboard.writeText(myPeerId).then(() => {
+                const badge = document.getElementById('my-id');
+                const originalText = myPeerId;
+                badge.innerText = "Copied!";
+                badge.style.background = "#28a745";
+                setTimeout(() => {
+                    badge.innerText = originalText;
+                    badge.style.background = "#007bff";
+                }, 1500);
+            });
+        }
+
+        // Incoming Call Logic
+        peer.on('call', call => {
+            currentCall = call;
+            document.getElementById('incoming-ui').style.display = 'block';
+            document.getElementById('ringtone').play().catch(() => {});
+        });
+
+        function answerCall() {
+            stopAllAudio();
+            document.getElementById('incoming-ui').style.display = 'none';
+            currentCall.answer(localStream);
+            handleCallEvents(currentCall);
+        }
+
+        function rejectCall() {
+            stopAllAudio();
+            document.getElementById('incoming-ui').style.display = 'none';
+            currentCall.close();
+        }
+
+        // Outgoing Call Logic
+        function makeCall() {
+            const remoteIdInput = document.getElementById('remote-id');
+            const destId = remoteIdInput.value.trim();
+            
+            if(!destId) return alert("Please enter an ID to call.");
+
+            // The "Lonely" Reality Check
+            if(destId === myPeerId) {
+                alert("Bro? Are you really this lonely? Here is an ID that I've entered into your friend's ID field—just hit call.");
+                
+                const song = document.getElementById('lonelySong');
+                song.currentTime = 0;
+                song.play().catch(e => console.error("Lonely song failed to play. Check if file exists:", e));
+                
+                remoteIdInput.value = CUSTOM_FRIEND_ID; 
+                return;
+            }
+
+            document.getElementById('status').innerText = "Dialing...";
+            const call = peer.call(destId, localStream);
+            handleCallEvents(call);
+        }
+
+        function handleCallEvents(call) {
+            currentCall = call;
+            call.on('stream', remoteStream => {
+                document.getElementById('remoteAudio').srcObject = remoteStream;
+                document.getElementById('status').innerText = "Connected";
+                document.getElementById('call-btn').style.display = 'none';
+                document.getElementById('hangup-btn').style.display = 'block';
+                stopAllAudio(); 
+            });
+            call.on('close', () => terminateUI("Call ended"));
+            
+            const pc = call.peerConnection;
+            pc.oniceconnectionstatechange = () => {
+                if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)) {
+                    terminateUI("Partner left the call");
+                }
+            };
+        }
+
+        function hangUp() {
+            if (currentCall) currentCall.close();
+            terminateUI("Call Ended");
+        }
+
+        function terminateUI(msg) {
+            document.getElementById('remoteAudio').srcObject = null;
+            document.getElementById('status').innerText = msg;
+            document.getElementById('call-btn').style.display = 'block';
+            document.getElementById('hangup-btn').style.display = 'none';
+            document.getElementById('incoming-ui').style.display = 'none';
+            stopAllAudio();
+        }
+
+        function toggleMute() {
+            isMuted = !isMuted;
+            if (localStream) {
+                localStream.getAudioTracks()[0].enabled = !isMuted;
+                document.getElementById('mute-btn').innerText = isMuted ? "Unmute Mic" : "Mute Mic";
+            }
+        }
+
+        function stopAllAudio() {
+            const ring = document.getElementById('ringtone');
+            const song = document.getElementById('lonelySong');
+            ring.pause();
+            ring.currentTime = 0;
+            song.pause();
+            song.currentTime = 0;
+        }
+
+        window.onbeforeunload = () => { if (currentCall) currentCall.close(); };
+    </script>
+</body>
+</html>
