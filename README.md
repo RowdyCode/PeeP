@@ -2,7 +2,7 @@
 
 A professional, real-time browser-to-browser voice calling application built with **Node.js**, **WebRTC**, and **PeerJS**. This project features low-latency audio communication, a modern UI, and a playful user experience.
 
-![App Screenshot](ptp.jpeg)
+![App Screenshot](pttp.jpeg)
 
 ## 🚀 Key Features
 
